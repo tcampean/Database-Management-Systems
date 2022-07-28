@@ -1,0 +1,357 @@
+USE GameDevCompany
+GO
+
+
+CREATE TABLE Logs(
+	LID INT IDENTITY PRIMARY KEY,
+	TypeOperation VARCHAR(50),
+	TableOperation VARCHAR(50),
+	Date DATETIME
+	);
+
+CREATE OR ALTER PROC ufValidate @name VARCHAR(20)
+AS
+BEGIN
+	IF (@name IS NULL OR LEN(@name) < 3)
+	BEGIN
+		RETURN 0
+	END
+	RETURN 1
+END
+
+
+CREATE OR ALTER FUNCTION ufValidateName (@name VARCHAR(20))
+RETURNS INT
+AS
+BEGIN
+	IF (@name IS NULL OR LEN(@name) < 3)
+	BEGIN
+		RETURN 0
+	END
+	RETURN 1
+END
+
+
+
+
+
+CREATE OR ALTER PROC uspAddGame @gid INT, @gname VARCHAR(20), @tid INT
+AS
+ BEGIN
+	if(dbo.ufValidateName(@gname) = 0)
+	BEGIN
+		RAISERROR('Name is invalid',14,1)
+	END
+
+	IF EXISTS (SELECT * FROM Game WHERE GID = @gid)
+	BEGIN
+		RAISERROR('INVALID ID',14,1)
+	END
+
+
+	INSERT INTO Game VALUES(@gid,@gname,@tid)
+	INSERT INTO Logs VALUES('add','game',GETDATE())
+END
+
+
+
+CREATE OR ALTER PROC uspAddGenre @genreid INT, @gname VARCHAR(20)
+AS
+ BEGIN
+	if(dbo.ufValidateName(@gname) = 0)
+	BEGIN
+		RAISERROR('Name is invalid',14,1)
+	END
+
+	IF EXISTS (SELECT * FROM Genre WHERE GenreID = @genreid)
+	BEGIN
+		RAISERROR('INVALID ID',14,1)
+	END
+
+
+	INSERT INTO Genre VALUES(@genreid,@gname)
+	INSERT INTO Logs VALUES('add','genre',GETDATE())
+END
+
+
+CREATE OR ALTER PROC uspAddGameGenre @gid INT, @genreid INT
+AS
+	BEGIN
+
+	IF NOT EXISTS (SELECT * FROM Game WHERE GID = @gid)
+	BEGIN
+		RAISERROR('INVALID GAME',14,1)
+	END
+
+	IF NOT EXISTS (SELECT * FROM Genre WHERE GenreID = @genreid)
+	BEGIN
+		RAISERROR('INVALID GENRE',14,1)
+	END
+
+	INSERT INTO GameGenre VALUES(@gid, @genreid)
+	INSERT INTO Logs VALUES('add','game genre',GETDATE())
+	END
+
+	
+
+CREATE OR ALTER PROC uspAddCommit
+AS
+	BEGIN TRAN
+	BEGIN TRY
+		EXEC uspAddGame 66,'Quiz101',4
+		EXEC uspAddGenre 55, 'Fun'
+		EXEC uspAddGameGenre 66, 55
+		COMMIT TRAN
+	END TRY
+	BEGIN CATCH
+		ROLLBACK TRAN
+		RETURN
+	END CATCH
+
+
+
+CREATE OR ALTER PROC uspAddRollback
+AS
+	BEGIN TRAN
+	BEGIN TRY
+		EXEC uspAddGame 22,'Quiz101',4
+		EXEC uspAddGenre 77, ''
+		EXEC uspAddGameGenre 22, 77
+		COMMIT TRAN
+	END TRY
+	BEGIN CATCH
+		ROLLBACK TRAN
+		RETURN
+	END CATCH
+
+EXEC uspAddCommit
+EXEC uspAddRollback
+
+SELECT * FROM Genre
+SELECT * FROM Game
+
+
+
+
+CREATE OR ALTER PROC uspAddGameRecover @gid INT, @gname VARCHAR(20), @tid INT
+AS
+ BEGIN TRAN
+ BEGIN TRY
+	if(dbo.ufValidateName(@gname) = 0)
+	BEGIN
+		RAISERROR('Name is invalid',14,1)
+	END
+
+	IF EXISTS (SELECT * FROM Game WHERE GID = @gid)
+	BEGIN
+		RAISERROR('INVALID ID',14,1)
+	END
+
+
+	INSERT INTO Game VALUES(@gid,@gname,@tid)
+	INSERT INTO Logs VALUES('add','game',GETDATE())
+	COMMIT TRAN
+END TRY
+BEGIN CATCH
+	ROLLBACK TRAN
+END CATCH
+
+
+
+
+
+
+CREATE OR ALTER PROC uspAddGenreRecover @genreid INT, @gname VARCHAR(20)
+AS
+ BEGIN TRAN
+ BEGIN TRY
+	if(dbo.ufValidateName(@gname) = 0)
+	BEGIN
+		RAISERROR('Name is invalid',14,1)
+	END
+
+	IF EXISTS (SELECT * FROM Genre WHERE GenreID = @genreid)
+	BEGIN
+		RAISERROR('INVALID ID',14,1)
+	END
+
+
+	INSERT INTO Genre VALUES(@genreid,@gname)
+	INSERT INTO Logs VALUES('add','genre',GETDATE())
+	COMMIT TRAN
+END TRY
+BEGIN CATCH
+	ROLLBACK TRAN
+END CATCH
+
+
+
+CREATE OR ALTER PROC uspAddGameGenreRecover @gid INT, @genreid INT
+AS
+	BEGIN TRAN
+	BEGIN TRY
+	IF NOT EXISTS (SELECT * FROM Game WHERE GID = @gid)
+	BEGIN
+		RAISERROR('INVALID GAME',14,1)
+	END
+
+	IF NOT EXISTS (SELECT * FROM Genre WHERE GenreID = @genreid)
+	BEGIN
+		RAISERROR('INVALID GENRE',14,1)
+	END
+
+	INSERT INTO GameGenre VALUES(@gid, @genreid)
+	INSERT INTO Logs VALUES('add','game genre',GETDATE())
+	COMMIT TRAN
+END TRY
+BEGIN CATCH
+	ROLLBACK TRAN
+END CATCH
+
+	
+
+CREATE OR ALTER PROC uspAddCommitRecover
+AS
+		EXEC uspAddGame 90,'Quiz101',4
+		EXEC uspAddGenre 90, 'Fun'
+		EXEC uspAddGameGenre 90, 90
+	
+
+
+
+CREATE OR ALTER PROC uspAddRollbackRecover
+AS
+		EXEC uspAddGame 97,'Quiz101',4
+		EXEC uspAddGenre 89, ''
+		EXEC uspAddGameGenre 97, 89
+
+
+EXEC uspAddCommitRecover
+
+EXEC uspAddRollbackRecover
+
+
+
+-- DEADLOCK EXAMPLE
+
+BEGIN TRAN
+
+UPDATE Game SET GName = 'Transaction 1' WHERE GID = 2
+WAITFOR DELAY '00:00:10'
+
+
+UPDATE Genre SET GenreName = 'Transaction 1' WHERE GenreID = 2
+COMMIT TRAN
+
+
+
+BEGIN TRAN
+
+
+UPDATE Genre SET GenreName = 'Transaction 2' WHERE GenreID = 2
+
+WAITFOR DELAY '00:00:10'
+
+UPDATE Game SET GName = 'Transaction 2' WHERE GID = 2
+
+
+COMMIT TRAN
+
+
+--Solution set the priority to high
+
+SET DEADLOCK_PRIORITY HIGH
+BEGIN TRAN
+
+UPDATE Game SET GName = 'Transaction 2' WHERE GID = 5
+WAITFOR DELAY '00:00:10'
+
+UPDATE Genre SET GenreName = 'Transaction 2' WHERE GenreID = 5
+COMMIT TRAN
+
+
+-- DIRTY READS
+
+
+BEGIN TRAN
+UPDATE Game
+SET GName = 'Amazing game' 
+WHERE GID = 5
+WAITFOR DELAY '00:00:04'
+ROLLBACK TRAN
+
+
+SET TRAN ISOLATION LEVEL READ UNCOMMITTED
+BEGIN TRAN
+SELECT * FROM Game
+WAITFOR DELAY '00:00:05'
+SELECT * FROM Game
+COMMIT TRAN
+
+
+--Solution set the read to commited
+
+SET TRAN ISOLATION LEVEL READ COMMITTED
+BEGIN TRAN
+SELECT * FROM Game
+WAITFOR DELAY '00:00:05'
+SELECT * FROM Game
+COMMIT TRAN
+
+
+--Non repeateable reads
+
+
+INSERT INTO Game VALUES (44,'Supergame',1)
+BEGIN TRAN
+WAITFOR DELAY '00:00:04'
+UPDATE Game
+SET TID = 2
+WHERE GName = 'Supergame'
+COMMIT TRAN
+
+
+
+SET TRAN ISOLATION LEVEL READ COMMITTED
+BEGIN TRAN
+SELECT * FROM Game
+WAITFOR DELAY '00:00:05'
+SELECT * FROM Game
+COMMIT TRAN
+
+
+--Solution set transaction isolation level to repeatable read
+SET TRAN ISOLATION LEVEL REPEATABLE READ
+BEGIN TRAN
+SELECT * FROM Game
+WAITFOR DELAY '00:00:05'
+SELECT * FROM Game
+COMMIT TRAN
+
+
+
+--Phantom reads
+
+
+BEGIN TRAN
+WAITFOR DELAY '00:00:04'
+INSERT INTO Game VALUES (29,'Crash',2)
+COMMIT TRAN
+
+
+SET TRAN ISOLATION LEVEL REPEATABLE READ
+BEGIN TRAN
+SELECT * FROM Game
+WAITFOR DELAY '00:00:05'
+SELECT * FROM Game
+COMMIT TRAN
+
+
+--Solution set transcation isolation level to serializable
+
+SET TRAN ISOLATION LEVEL SERIALIZABLE
+BEGIN TRAN
+SELECT * FROM Game
+WAITFOR DELAY '00:00:05'
+SELECT * FROM Game
+COMMIT TRAN
